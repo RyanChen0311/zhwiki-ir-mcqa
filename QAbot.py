@@ -1,155 +1,204 @@
+"""
+QAbot.py — Traditional Chinese multiple-choice QA system
+=========================================================
+
+Algorithm
+---------
+1. Tokenise the question using jieba (noun-only, POS tag = 'n').
+2. For each keyword, retrieve the set of Wikipedia article IDs from the
+   inverted index.
+3. For each answer option (A / B / C), count how many articles contain
+   BOTH the keyword AND the answer option (set intersection size).
+4. The option with the highest total intersection count is selected as
+   the answer.
+
+This is an unsupervised IR-based approach — no model training required.
+
+Usage
+-----
+    python QAbot.py --questions questions_example.json \
+                    --index    inverted_index.json \
+                    --output   answer_list.json
+
+Author: Ryan Chen
+"""
+
 import json
+import argparse
 import jieba
 import jieba.posseg as pseg
-import operator
 
-#繁體中文
-jieba.set_dictionary('dict.txt.big')
 
-#From KEM_dic_noun 加入30萬個自訂詞彙
-print('load use userdict_ex begins')
-jieba.load_userdict('userdict_ex.txt')
-print('load use userdict_ex ends 300,000')
+# ---------------------------------------------------------------------------
+# Stop-word / noise configuration
+# ---------------------------------------------------------------------------
 
-#讀取考卷
-f = open('questions_example.json', mode = "r", encoding = 'utf-8')
-question = json.load(f)
+# Base noise words (too generic to be discriminative)
+_NOISE_BASE = {
+    '官方', '主權國家', '簡稱', '首任', '校長', '定位', '大學', '目標',
+    '綜合大學', '改名', '現代', '學風', '省份', '省會', '人類', '生活',
+    '距今', '中國', '亞洲', '並稱', '分屬', '國家', '城市', '憲法',
+    '首都', '政府', '國王', '全世界', '語言', '地區', '總部', '從事',
+    '行動', '生產', '成立於', '業務', '技術', '授權', '消費者', '部門',
+    '品牌', '製造', '跨國公司', '通訊設備', '頂點', '鄰國', '人口',
+    '國界', '原本', '全國', '中央', '地理位置', '在一起', '能力', '相關',
+    '產品', '中部', '中心', '城鎮', '又稱', '景點',
+    # Extended noise
+    '東北', '西南', '服務', '基礎', '通信', '遷都', '國土', '海港',
+    '西岸', '市為', '方面', '非洲', '美國', '致力於', '戰爭', '實現', '合作',
+}
 
-#讀取反向索引表
-f3 = open('inverted_index.json', mode = "r", encoding = 'utf-8')
-dic_inverted_index = json.load(f3)
+# Word normalisation: map specific tokens to a more useful lookup term
+_WORD_MAP = {
+    '西非國家': '西非',
+}
 
-#詞性表
-#flag_list = ['n','ng','nr','nrfg','nrt','ns','nt','nz']
-flag_list = ['n']
+# Part-of-speech tags to keep (noun only)
+_TARGET_POS = {'n'}
 
-#雜訊
-ignore_list = ['官方','主權國家','簡稱','首任','校長','定位','大學','目標','綜合大學','改名','現代','學風','省份','省會','人類','生活','距今','中國','亞洲',
-               '並稱','分屬','國家','城市','憲法','首都','政府','國王','全世界','語言','地區','總部','從事','行動','生產','成立於','業務','技術','授權',
-               '消費者','部門','品牌','製造','跨國公司','通訊設備','頂點','鄰國','人口','國界','原本','全國','中央','地理位置','在一起','能力','相關','產品',
-               '中部','中心','城鎮','又稱','景點']
-ignore_list2 = ['官方','主權國家','簡稱','首任','校長','定位','大學','目標','綜合大學','改名','現代','學風','省份','省會','人類','生活','距今','中國','亞洲',
-               '並稱','分屬','國家','城市','憲法','首都','政府','國王','全世界','語言','地區','總部','從事','行動','生產','成立於','業務','技術','授權',
-               '消費者','部門','品牌','製造','跨國公司','通訊設備','頂點','鄰國','人口','國界','原本','全國','中央','地理位置','在一起','能力','相關','產品',
-               '中部','中心','城鎮','又稱','景點',
-               '東北','西南','服務','基礎','通信','遷都','國土','海港','西岸','市為']
-ignore_list3 = ['官方','主權國家','簡稱','首任','校長','定位','大學','目標','綜合大學','改名','現代','學風','省份','省會','人類','生活','距今','中國','亞洲',
-               '並稱','分屬','國家','城市','憲法','首都','政府','國王','全世界','語言','地區','總部','從事','行動','生產','成立於','業務','技術','授權',
-               '消費者','部門','品牌','製造','跨國公司','通訊設備','頂點','鄰國','人口','國界','原本','全國','中央','地理位置','在一起','能力','相關','產品',
-               '中部','中心','城鎮','又稱','景點',
-               '東北','西南','服務','基礎','通信','遷都','國土','海港','西岸','市為',
-               '方面']
-ignore_list4 = ['官方','主權國家','簡稱','首任','校長','定位','大學','目標','綜合大學','改名','現代','學風','省份','省會','人類','生活','距今','中國','亞洲',
-               '並稱','分屬','國家','城市','憲法','首都','政府','國王','全世界','語言','地區','總部','從事','行動','生產','成立於','業務','技術','授權',
-               '消費者','部門','品牌','製造','跨國公司','通訊設備','頂點','鄰國','人口','國界','原本','全國','中央','地理位置','在一起','能力','相關','產品',
-               '中部','中心','城鎮','又稱','景點',
-               '東北','西南','服務','基礎','通信','遷都','國土','海港','西岸','市為',
-               '方面',
-               '非洲']
-ignore_list5 = ['官方','主權國家','簡稱','首任','校長','定位','大學','目標','綜合大學','改名','現代','學風','省份','省會','人類','生活','距今','中國','亞洲',
-               '並稱','分屬','國家','城市','憲法','首都','政府','國王','全世界','語言','地區','總部','從事','行動','生產','成立於','業務','技術','授權',
-               '消費者','部門','品牌','製造','跨國公司','通訊設備','頂點','鄰國','人口','國界','原本','全國','中央','地理位置','在一起','能力','相關','產品',
-               '中部','中心','城鎮','又稱','景點',
-               '東北','西南','服務','基礎','通信','遷都','國土','海港','西岸','市為',
-               '方面',
-               '非洲',
-               '美國','致力於','戰爭','實現','合作']
 
-#空白答案卷     
-answer_list=[]
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
 
-#QAbot function
-def QAbot(q):
-    dic_intersection = {'A' : 0, 'B' : 0, 'C' : 0 }
-    dic_check={}
-    
-    listA=[]
-    listB=[]
-    listC=[]
+def load_json(path: str) -> object:
+    """Load a UTF-8 JSON file and return the parsed object."""
+    with open(path, mode='r', encoding='utf-8') as f:
+        return json.load(f)
 
-    #建立答案選項的出現文章清單
-    print('********A********')
-    if q['A'] in dic_inverted_index.keys():
-        listA=dic_inverted_index[q['A']]
-    else:
-        print('A. '+ q['A'] +' not in inverted index')
-    #print(listA)
-    print('********B********')
-    if q['B'] in dic_inverted_index.keys():
-        listB=dic_inverted_index[q['B']]
-    else:
-        print('B. '+ q['B'] +' not in inverted index')
-    #print(listB)
-    print('********C********')
-    if q['C'] in dic_inverted_index.keys():
-        listC=dic_inverted_index[q['C']]
-    else:
-        print('C. '+ q['C'] +' not in inverted index')
-    #print(listC)
 
-    #斷詞並開始分析句子中目標詞彙與答案選項之交集關係
-    print('Check Sentence:')
-    words=pseg.cut(q['Question'])
-    for word in words:
-        if word.word not in dic_check.keys() and word.flag in flag_list and len(word.word)!=1 and word.word not in ignore_list5:
-            print(word.word)
+def save_json(obj: object, path: str) -> None:
+    """Save an object to a UTF-8 JSON file with readable indentation."""
+    with open(path, mode='w', encoding='utf-8') as f:
+        json.dump(obj, f, sort_keys=True, indent=4, ensure_ascii=False)
+        f.write('\n')
+    print(f'[saved] {path}')
 
-            target_word = word.word
-            if target_word == '西非國家':
-                print('西非國家->西非')
-                target_word = '西非'
 
-            dic_check[target_word]=1
+def extract_keywords(text: str) -> list[str]:
+    """
+    Tokenise *text* with jieba POS tagging and return discriminative nouns.
 
-            #檢查目標詞彙是否在反向索引表內，並查該目標詞彙出現在哪些文章
-            list_word=[]
-            if target_word in dic_inverted_index.keys():
-                list_word=dic_inverted_index[target_word]
-            else:
-                print(target_word+'not in inverted index')
-            #print(list_word)
-            
-            #檢查目標詞彙與答案選項是否交集，每交集一篇文章，則+1
-            for id in list_word:
-                if id in listA:
-                    dic_intersection['A']+=1
-                if id in listB:
-                    dic_intersection['B']+=1
-                if id in listC:
-                    dic_intersection['C']+=1
+    Filters:
+    - Only keep tokens whose POS tag is in _TARGET_POS.
+    - Drop single-character tokens (too ambiguous).
+    - Drop tokens in _NOISE_BASE.
+    - Apply _WORD_MAP normalisation.
+    - Deduplicate while preserving order.
+    """
+    seen = set()
+    keywords = []
+    for word, flag in pseg.cut(text):
+        if flag not in _TARGET_POS:
+            continue
+        if len(word) == 1:
+            continue
+        if word in _NOISE_BASE:
+            continue
+        word = _WORD_MAP.get(word, word)
+        if word not in seen:
+            seen.add(word)
+            keywords.append(word)
+    return keywords
 
-    #秀出每一個答案選項所獲得的交集總數
-    print('A:',dic_intersection['A'])
-    print('B:',dic_intersection['B'])
-    print('C:',dic_intersection['C'])
-    
-    #取交集總數最高者為答案
-    max_key = max(dic_intersection, key=lambda key: dic_intersection[key])
-    answer_list.append(max_key)
 
-#測時只跑一題
-# QAbot(question[10])
+# ---------------------------------------------------------------------------
+# Core QA logic
+# ---------------------------------------------------------------------------
 
-#執行QAbot去跑一整份試卷
-count=0
-for q in question:
-    count+=1
-    print('Question',count,'start!')
-    QAbot(q)    
-    print('Question',count,'finished!')
-    print('=================')
-    # if count == 5:
-    #     break
+def answer_question(question: dict, inverted_index: dict) -> str:
+    """
+    Select the best answer option for *question* using inverted-index scoring.
 
-#秀出答案
-print(answer_list)
+    Parameters
+    ----------
+    question : dict
+        Keys: 'Question', 'A', 'B', 'C'
+    inverted_index : dict
+        Maps token → list of Wikipedia article IDs.
 
-#將答案寫成json格式
-with open('answer_list.json', 'w', encoding='utf-8') as f2:
-  f2.write(json.dumps(answer_list, sort_keys=True, indent=4,ensure_ascii=False))
-  f2.write('\n')
+    Returns
+    -------
+    str
+        The winning option key: 'A', 'B', or 'C'.
+    """
+    options = {key: question[key] for key in ('A', 'B', 'C')}
 
-#關檔
-f.close()
-f2.close()
-f3.close()
+    # Build article-ID sets for each option
+    option_sets = {
+        key: set(inverted_index.get(term, []))
+        for key, term in options.items()
+    }
+
+    # Log missing options
+    for key, term in options.items():
+        if not option_sets[key]:
+            print(f'  [warn] option {key} ("{term}") not in inverted index')
+
+    # Score each option by counting keyword co-occurrences
+    scores = {key: 0 for key in options}
+    keywords = extract_keywords(question['Question'])
+
+    print(f'  keywords: {keywords}')
+
+    for kw in keywords:
+        kw_articles = set(inverted_index.get(kw, []))
+        if not kw_articles:
+            print(f'  [warn] keyword "{kw}" not in inverted index')
+            continue
+        for key, opt_articles in option_sets.items():
+            scores[key] += len(kw_articles & opt_articles)
+
+    print(f'  scores → A:{scores["A"]}  B:{scores["B"]}  C:{scores["C"]}')
+
+    best = max(scores, key=lambda k: scores[k])
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+def run(questions_path: str, index_path: str, output_path: str) -> None:
+    """Load data, run QAbot on every question, and save answers."""
+
+    # Load resources
+    print('[init] loading jieba dictionary ...')
+    jieba.set_dictionary('dict.txt.big')
+    print('[init] loading user dictionary ...')
+    jieba.load_userdict('userdict_ex.txt')
+    print('[init] dictionaries loaded.')
+
+    print(f'[load] questions  : {questions_path}')
+    questions = load_json(questions_path)
+    print(f'[load] index      : {index_path}')
+    inverted_index = load_json(index_path)
+    print(f'[info] {len(questions)} questions | {len(inverted_index)} index entries\n')
+
+    answers = []
+    for i, q in enumerate(questions, start=1):
+        print(f'--- Q{i} ---')
+        ans = answer_question(q, inverted_index)
+        print(f'  answer: {ans}')
+        answers.append(ans)
+
+    print(f'\n[result] {answers}')
+    save_json(answers, output_path)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description='Traditional Chinese multiple-choice QA via inverted index'
+    )
+    parser.add_argument('--questions', default='questions_example.json',
+                        help='Path to question JSON file')
+    parser.add_argument('--index',     default='inverted_index.json',
+                        help='Path to inverted index JSON file')
+    parser.add_argument('--output',    default='answer_list.json',
+                        help='Path for output answer JSON file')
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    run(args.questions, args.index, args.output)
