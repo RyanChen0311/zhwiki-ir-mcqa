@@ -117,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Build an inverted index from a tokenised Wikipedia dump'
     )
-    parser.add_argument('--input',     default='wiki_tokenize_2021_08_05_1215639.json',
+    parser.add_argument('--input',     default='wiki_tokenize.json',
                         help='Path to tokenised Wikipedia JSON')
     parser.add_argument('--output',    default='inverted_index.json',
                         help='Path for the output inverted index JSON')

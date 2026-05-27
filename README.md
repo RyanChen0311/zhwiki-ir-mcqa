@@ -51,13 +51,13 @@ inverted_index_build.py          ir_mcqa.py
 │ Wikipedia JSON dump  │         │ questions_example.json   │
 │  (tokenised, ~5 GB)  │         │  inverted_index.json     │
 └──────────┬───────────┘         └────────────┬─────────────┘
-           │ ijson stream                      │
-           ▼                                   ▼
+           │ ijson stream                     │
+           ▼                                  ▼
   build_index()                     extract_keywords()
   ● filter nouns (len ≥ 2)          ● jieba POS tagging
   ● deduplicate per article         ● noun filter + noise removal
-           │                                   │
-           ▼                                   ▼
+           │                                  │
+           ▼                                  ▼
   inverted_index.json           answer_question()
                                 ● set intersection scoring
                                 ● argmax selection
