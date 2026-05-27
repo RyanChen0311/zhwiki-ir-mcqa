@@ -1,4 +1,4 @@
-# QAbot
+# zhwiki-ir-mcqa
 
 > An unsupervised Traditional Chinese multiple-choice QA system built on a **Wikipedia-scale inverted index** and **jieba POS-tagged tokenisation** — no model training required.
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Given a multiple-choice question in Traditional Chinese, QAbot selects the correct answer by measuring how strongly each option co-occurs with the question's keywords across Wikipedia.
+Given a multiple-choice question in Traditional Chinese, this system selects the correct answer by measuring how strongly each option co-occurs with the question's keywords across Wikipedia.
 
 The approach is entirely **information-retrieval based**: no neural network, no training data, no GPU needed.
 
@@ -46,7 +46,7 @@ The intuition: if "趙高" and "秦始皇" appear together in many Wikipedia art
 ## Architecture
 
 ```
-inverted_index_build.py          QAbot.py
+inverted_index_build.py          ir_mcqa.py
 ┌──────────────────────┐         ┌──────────────────────────┐
 │ Wikipedia JSON dump  │         │ questions_example.json   │
 │  (tokenised, ~5 GB)  │         │  inverted_index.json     │
@@ -71,8 +71,8 @@ inverted_index_build.py          QAbot.py
 ## Project Structure
 
 ```
-QAbot/
-├── QAbot.py                  # QA pipeline: tokenise → score → answer
+zhwiki-ir-mcqa/
+├── ir_mcqa.py                # QA pipeline: tokenise → score → answer
 ├── inverted_index_build.py   # Offline index builder (streams Wikipedia dump)
 ├── requirements.txt
 └── README.md
@@ -80,9 +80,8 @@ QAbot/
 External data files (not included — see Setup):
 ├── dict.txt.big              # jieba Traditional Chinese dictionary
 ├── userdict_ex.txt           # 300,000 custom vocabulary entries
-├── wiki_tokenize_*.json      # Tokenised Wikipedia dump
-├── inverted_index.json       # Pre-built index output
-└── questions_example.json    # Question input file
+├── wiki_tokenize.json        # Tokenised Wikipedia dump (~5 GB)
+└── inverted_index.json       # Pre-built index output
 ```
 
 ---
@@ -90,16 +89,17 @@ External data files (not included — see Setup):
 ## Setup
 
 ```bash
-# Install dependencies
+# Install dependencies (Python >= 3.9 required)
 pip install -r requirements.txt
-
-# Download jieba Traditional Chinese dictionary
-# Place dict.txt.big in the project root
-# https://github.com/fxsjy/jieba
-
-# (Optional) Add custom vocabulary
-# Place userdict_ex.txt in the project root
 ```
+
+**Data files** — download and place in the project root:
+
+| File | Source | Notes |
+|---|---|---|
+| `dict.txt.big` | [jieba repo](https://github.com/fxsjy/jieba) | Traditional Chinese dictionary |
+| `wiki_tokenize.json` | [Wikimedia dumps](https://dumps.wikimedia.org/zhwiki/) | Chinese Wikipedia XML → tokenise with jieba; ~5 GB result |
+| `userdict_ex.txt` | KEM noun dictionary | Optional; 300,000 custom vocabulary entries |
 
 ---
 
@@ -109,14 +109,14 @@ pip install -r requirements.txt
 
 ```bash
 python inverted_index_build.py \
-    --input   wiki_tokenize_2021_08_05_1215639.json \
+    --input   wiki_tokenize.json \
     --output  inverted_index.json \
     --log-every 1000
 ```
 
 Sample output:
 ```
-[build] streaming wiki_tokenize_2021_08_05_1215639.json ...
+[build] streaming wiki_tokenize.json ...
   processed 1,000 articles | index size: 48,231 tokens
   processed 2,000 articles | index size: 89,104 tokens
   ...
@@ -124,10 +124,10 @@ Sample output:
 [save] done → inverted_index.json
 ```
 
-### 2. Run QAbot on a question set
+### 2. Run the QA system on a question set
 
 ```bash
-python QAbot.py \
+python ir_mcqa.py \
     --questions questions_example.json \
     --index     inverted_index.json \
     --output    answer_list.json

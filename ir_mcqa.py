@@ -1,6 +1,6 @@
 """
-QAbot.py — Traditional Chinese multiple-choice QA system
-=========================================================
+ir_mcqa.py — Traditional Chinese multiple-choice QA system
+===========================================================
 
 Algorithm
 ---------
@@ -16,14 +16,15 @@ This is an unsupervised IR-based approach — no model training required.
 
 Usage
 -----
-    python QAbot.py --questions questions_example.json \
-                    --index    inverted_index.json \
-                    --output   answer_list.json
+    python ir_mcqa.py --questions questions_example.json \
+                      --index    inverted_index.json \
+                      --output   answer_list.json
 
 Author: Ryan Chen
 """
 
 import json
+import os
 import argparse
 import jieba
 import jieba.posseg as pseg
@@ -165,8 +166,11 @@ def run(questions_path: str, index_path: str, output_path: str) -> None:
     # Load resources
     print('[init] loading jieba dictionary ...')
     jieba.set_dictionary('dict.txt.big')
-    print('[init] loading user dictionary ...')
-    jieba.load_userdict('userdict_ex.txt')
+    if os.path.exists('userdict_ex.txt'):
+        print('[init] loading user dictionary ...')
+        jieba.load_userdict('userdict_ex.txt')
+    else:
+        print('[init] userdict_ex.txt not found, skipping (optional)')
     print('[init] dictionaries loaded.')
 
     print(f'[load] questions  : {questions_path}')
